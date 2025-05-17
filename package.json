@@ -34,7 +34,7 @@
     "inspector": "npx @modelcontextprotocol/inspector build/index.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "0.6.0",
+    "@modelcontextprotocol/sdk": "1.11.4",
     "@roam-research/roam-api-sdk": "^0.10.0",
     "dotenv": "^16.4.7"
   },
