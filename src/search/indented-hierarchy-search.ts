@@ -28,6 +28,22 @@ interface BlockNode {
   children?: BlockNode[];
 }
 
+interface RawBlock {
+  ':block/string'?: string;
+  ':block/uid': string;
+  ':block/order'?: number;
+  ':block/children'?: RawBlock[];
+}
+
+function normalizeBlock(raw: RawBlock): BlockNode {
+  return {
+    uid: raw[":block/uid"],
+    string: raw[":block/string"] || "",
+    order: raw[":block/order"] ?? 0,
+    children: raw[":block/children"]?.map(normalizeBlock),
+  };
+}
+
 export class IndentedHierarchyHandler extends BaseSearchHandler {
   constructor(
     graph: Graph,
@@ -87,235 +103,21 @@ export class IndentedHierarchyHandler extends BaseSearchHandler {
 
       // Abordare descendentă (parent_uid)
       if (parent_uid) {
-        // 1. Obținem blocul rădăcină
-        const rootQuery = `[:find ?string
-                          :in $ ?uid
-                          :where [?b :block/uid ?uid]
-                                 [?b :block/string ?string]]`;
-        
-        const rootResults = await q(this.graph, rootQuery, [parent_uid]) as [string][];
-        if (rootResults.length === 0) {
+        const pattern = this.buildPullPattern(effectiveMaxDepth);
+        const pullQuery = `[:find (pull ?b ${pattern}) .\n                          :in $ ?uid\n                          :where [?b :block/uid ?uid]]`;
+        const result = await q(this.graph, pullQuery, [parent_uid]);
+        if (!result) {
           return {
             success: false,
             matches: [],
             message: `Block with UID ${parent_uid} not found`
           };
         }
-
-        const rootContent = await resolveRefs(this.graph, rootResults[0][0]);
-        
-        // Începem lista cu blocul rădăcină
-        indentedList = `- ${rootContent}\n`;
-        totalBlocks = 1;
-
-        // Construim ierarhia nivel cu nivel în mod explcit
-        // Nivel 1: Copiii direcți
-        const level1Query = `[:find ?b-uid ?string ?order
-                            :in $ ?parent-uid
-                            :where [?parent :block/uid ?parent-uid]
-                                   [?parent :block/children ?b]
-                                   [?b :block/uid ?b-uid]
-                                   [?b :block/string ?string]
-                                   [?b :block/order ?order]]`;
-        
-        const level1Results = await q(this.graph, level1Query, [parent_uid]) as [string, string, number][];
-        
-        if (level1Results && level1Results.length > 0) {
-          // Sortăm după ordinea blocurilor
-          const sortedLevel1 = [...level1Results].sort((a, b) => a[2] - b[2]);
-          
-          // Rezolvăm toate referințele într-un batch
-          const level1Contents = await Promise.all(
-            sortedLevel1.map(([_, str]) => resolveRefs(this.graph, str))
-          );
-          
-          for (let i = 0; i < sortedLevel1.length; i++) {
-            indentedList += `  - ${level1Contents[i]}\n`;
-            totalBlocks++;
-            
-            // Nivel 2: dacă este necesar și nu am atins adâncimea maximă
-            if (effectiveMaxDepth >= 2) {
-              const childUid = sortedLevel1[i][0];
-              
-              const level2Query = `[:find ?b-uid ?string ?order
-                                  :in $ ?parent-uid
-                                  :where [?parent :block/uid ?parent-uid]
-                                         [?parent :block/children ?b]
-                                         [?b :block/uid ?b-uid]
-                                         [?b :block/string ?string]
-                                         [?b :block/order ?order]]`;
-              
-              const level2Results = await q(this.graph, level2Query, [childUid]) as [string, string, number][];
-              
-              if (level2Results && level2Results.length > 0) {
-                // Sortăm după ordinea blocurilor
-                const sortedLevel2 = [...level2Results].sort((a, b) => a[2] - b[2]);
-                
-                // Rezolvăm toate referințele într-un batch
-                const level2Contents = await Promise.all(
-                  sortedLevel2.map(([_, str]) => resolveRefs(this.graph, str))
-                );
-                
-                for (let j = 0; j < sortedLevel2.length; j++) {
-                  indentedList += `    - ${level2Contents[j]}\n`;
-                  totalBlocks++;
-                  
-                  // Nivel 3: dacă este necesar și nu am atins adâncimea maximă
-                  if (effectiveMaxDepth >= 3) {
-                    const grandchildUid = sortedLevel2[j][0];
-                    
-                    const level3Query = `[:find ?b-uid ?string ?order
-                                        :in $ ?parent-uid
-                                        :where [?parent :block/uid ?parent-uid]
-                                               [?parent :block/children ?b]
-                                               [?b :block/uid ?b-uid]
-                                               [?b :block/string ?string]
-                                               [?b :block/order ?order]]`;
-                    
-                    const level3Results = await q(this.graph, level3Query, [grandchildUid]) as [string, string, number][];
-                    
-                    if (level3Results && level3Results.length > 0) {
-                      // Sortăm după ordinea blocurilor
-                      const sortedLevel3 = [...level3Results].sort((a, b) => a[2] - b[2]);
-                      
-                      // Rezolvăm toate referințele într-un batch
-                      const level3Contents = await Promise.all(
-                        sortedLevel3.map(([_, str]) => resolveRefs(this.graph, str))
-                      );
-                      
-                      for (let k = 0; k < sortedLevel3.length; k++) {
-                        indentedList += `      - ${level3Contents[k]}\n`;
-                        totalBlocks++;
-                        
-                        // Nivel 4: dacă este necesar și nu am atins adâncimea maximă
-                        if (effectiveMaxDepth >= 4) {
-                          const greatgrandchildUid = sortedLevel3[k][0];
-                          
-                          const level4Query = `[:find ?b-uid ?string ?order
-                                              :in $ ?parent-uid
-                                              :where [?parent :block/uid ?parent-uid]
-                                                     [?parent :block/children ?b]
-                                                     [?b :block/uid ?b-uid]
-                                                     [?b :block/string ?string]
-                                                     [?b :block/order ?order]]`;
-                          
-                          const level4Results = await q(this.graph, level4Query, [greatgrandchildUid]) as [string, string, number][];
-                          
-                          if (level4Results && level4Results.length > 0) {
-                            // Sortăm după ordinea blocurilor
-                            const sortedLevel4 = [...level4Results].sort((a, b) => a[2] - b[2]);
-                            
-                            // Rezolvăm toate referințele într-un batch
-                            const level4Contents = await Promise.all(
-                              sortedLevel4.map(([_, str]) => resolveRefs(this.graph, str))
-                            );
-                            
-                            for (let l = 0; l < sortedLevel4.length; l++) {
-                              indentedList += `        - ${level4Contents[l]}\n`;
-                              totalBlocks++;
-                              
-                              // Nivel 5: dacă este necesar și nu am atins adâncimea maximă
-                              if (effectiveMaxDepth >= 5) {
-                                const greatgreatgrandchildUid = sortedLevel4[l][0];
-                                
-                                const level5Query = `[:find ?b-uid ?string ?order
-                                                    :in $ ?parent-uid
-                                                    :where [?parent :block/uid ?parent-uid]
-                                                           [?parent :block/children ?b]
-                                                           [?b :block/uid ?b-uid]
-                                                           [?b :block/string ?string]
-                                                           [?b :block/order ?order]]`;
-                                
-                                const level5Results = await q(this.graph, level5Query, [greatgreatgrandchildUid]) as [string, string, number][];
-                                
-                                if (level5Results && level5Results.length > 0) {
-                                  // Sortăm după ordinea blocurilor
-                                  const sortedLevel5 = [...level5Results].sort((a, b) => a[2] - b[2]);
-                                  
-                                  // Rezolvăm toate referințele într-un batch
-                                  const level5Contents = await Promise.all(
-                                    sortedLevel5.map(([_, str]) => resolveRefs(this.graph, str))
-                                  );
-                                  
-                                  for (let m = 0; m < sortedLevel5.length; m++) {
-                                    indentedList += `          - ${level5Contents[m]}\n`;
-                                    totalBlocks++;
-                                    
-                                    // Nivel 6: dacă este necesar și nu am atins adâncimea maximă
-                                    if (effectiveMaxDepth >= 6) {
-                                      const level6Uid = sortedLevel5[m][0];
-                                      
-                                      const level6Query = `[:find ?b-uid ?string ?order
-                                                          :in $ ?parent-uid
-                                                          :where [?parent :block/uid ?parent-uid]
-                                                                 [?parent :block/children ?b]
-                                                                 [?b :block/uid ?b-uid]
-                                                                 [?b :block/string ?string]
-                                                                 [?b :block/order ?order]]`;
-                                      
-                                      const level6Results = await q(this.graph, level6Query, [level6Uid]) as [string, string, number][];
-                                      
-                                      if (level6Results && level6Results.length > 0) {
-                                        // Sortăm după ordinea blocurilor
-                                        const sortedLevel6 = [...level6Results].sort((a, b) => a[2] - b[2]);
-                                        
-                                        // Rezolvăm toate referințele într-un batch
-                                        const level6Contents = await Promise.all(
-                                          sortedLevel6.map(([_, str]) => resolveRefs(this.graph, str))
-                                        );
-                                        
-                                        for (let n = 0; n < sortedLevel6.length; n++) {
-                                          indentedList += `            - ${level6Contents[n]}\n`;
-                                          totalBlocks++;
-                                          
-                                          // Nivel 7: dacă este necesar și nu am atins adâncimea maximă
-                                          if (effectiveMaxDepth >= 7) {
-                                            const level7Uid = sortedLevel6[n][0];
-                                            
-                                            const level7Query = `[:find ?b-uid ?string ?order
-                                                                :in $ ?parent-uid
-                                                                :where [?parent :block/uid ?parent-uid]
-                                                                       [?parent :block/children ?b]
-                                                                       [?b :block/uid ?b-uid]
-                                                                       [?b :block/string ?string]
-                                                                       [?b :block/order ?order]]`;
-                                            
-                                            const level7Results = await q(this.graph, level7Query, [level7Uid]) as [string, string, number][];
-                                            
-                                            if (level7Results && level7Results.length > 0) {
-                                              // Sortăm după ordinea blocurilor
-                                              const sortedLevel7 = [...level7Results].sort((a, b) => a[2] - b[2]);
-                                              
-                                              // Rezolvăm toate referințele într-un batch
-                                              const level7Contents = await Promise.all(
-                                                sortedLevel7.map(([_, str]) => resolveRefs(this.graph, str))
-                                              );
-                                              
-                                              for (let o = 0; o < sortedLevel7.length; o++) {
-                                                indentedList += `              - ${level7Contents[o]}\n`;
-                                                totalBlocks++;
-                                              }
-                                            }
-                                          }
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      } 
-      // Abordare ascendentă (child_uid)
+        const rootBlock = normalizeBlock(result as unknown as RawBlock);
+        const treeResult = await this.processTree([rootBlock], 0, effectiveMaxDepth, "");
+        indentedList = treeResult.indentedText;
+        totalBlocks = treeResult.totalBlocks;
+      }
       else if (child_uid) {
         // 1. Obținem blocul copil
         const childQuery = `[:find ?string
