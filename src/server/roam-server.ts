@@ -12,7 +12,7 @@ import { toolSchemas } from '../tools/schemas.js';
 import { ToolHandlers } from '../tools/tool-handlers.js';
 
 export class RoamServer {
-  private server: Server;
+  private server: any;
   private toolHandlers: ToolHandlers;
   private graph: Graph;
 
@@ -59,7 +59,7 @@ export class RoamServer {
     this.setupRequestHandlers();
     
     // Error handling
-    this.server.onerror = (error) => { /* handle error silently */ };
+    this.server.onerror = (error: unknown) => { /* handle error silently */ };
     process.on('SIGINT', async () => {
       await this.server.close();
       process.exit(0);
@@ -73,7 +73,7 @@ export class RoamServer {
     }));
 
     // Handle tool calls
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    this.server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       try {
         switch (request.params.name) {
           case 'roam_remember': {

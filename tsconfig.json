@@ -12,6 +12,7 @@
   },
   "include": [
     "src/**/*",
+    "src/types/**/*.d.ts",
     "tests/test-addMarkdownText.ts",
     "tests/test-queries.ts"
   ],
