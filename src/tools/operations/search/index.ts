@@ -5,14 +5,16 @@ import type {
   BlockRefSearchParams,
   HierarchySearchParams,
   TextSearchParams,
-  SearchHandlerResult
+  SearchHandlerResult,
+  IndentedHierarchyParams
 } from './types.js';
 import {
   TagSearchHandlerImpl,
   BlockRefSearchHandlerImpl,
   HierarchySearchHandlerImpl,
   TextSearchHandlerImpl,
-  StatusSearchHandlerImpl
+  StatusSearchHandlerImpl,
+  IndentedHierarchyHandlerImpl
 } from './handlers.js';
 
 export class SearchOperations {
@@ -86,6 +88,11 @@ export class SearchOperations {
 
   async searchHierarchy(params: HierarchySearchParams): Promise<SearchHandlerResult> {
     const handler = new HierarchySearchHandlerImpl(this.graph, params);
+    return handler.execute();
+  }
+
+  async searchHierarchyIndented(params: IndentedHierarchyParams): Promise<SearchHandlerResult> {
+    const handler = new IndentedHierarchyHandlerImpl(this.graph, params);
     return handler.execute();
   }
 

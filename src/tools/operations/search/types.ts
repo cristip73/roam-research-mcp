@@ -29,6 +29,13 @@ export interface HierarchySearchParams extends BaseSearchParams {
   max_depth?: number;
 }
 
+// Indented Hierarchy search parameters
+export interface IndentedHierarchyParams extends BaseSearchParams {
+  parent_uid?: string;
+  child_uid?: string;
+  max_depth?: number;
+}
+
 // Text search parameters
 export interface TextSearchParams extends BaseSearchParams {
   text: string;

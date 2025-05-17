@@ -85,6 +85,15 @@ export class ToolHandlers {
     return this.searchOps.searchHierarchy(params);
   }
 
+  async searchHierarchyIndented(params: { 
+    parent_uid?: string;
+    child_uid?: string;
+    page_title_uid?: string;
+    max_depth?: number;
+  }) {
+    return this.searchOps.searchHierarchyIndented(params);
+  }
+
   async searchByText(params: {
     text: string;
     page_title_uid?: string;

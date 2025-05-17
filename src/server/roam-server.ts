@@ -44,6 +44,7 @@ export class RoamServer {
               roam_search_by_status: {},
               roam_search_block_refs: {},
               roam_search_hierarchy: {},
+              roam_search_hierarchy_indented: {},
               roam_find_pages_modified_today: {},
               roam_search_by_text: {},
               roam_update_block: {},
@@ -226,6 +227,28 @@ export class RoamServer {
             }
             
             const result = await this.toolHandlers.searchHierarchy(params);
+            return {
+              content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            };
+          }
+
+          case 'roam_search_hierarchy_indented': {
+            const params = request.params.arguments as {
+              parent_uid?: string;
+              child_uid?: string;
+              page_title_uid?: string;
+              max_depth?: number;
+            };
+            
+            // Validate that either parent_uid or child_uid is provided, but not both
+            if ((!params.parent_uid && !params.child_uid) || (params.parent_uid && params.child_uid)) {
+              throw new McpError(
+                ErrorCode.InvalidRequest,
+                'Either parent_uid or child_uid must be provided, but not both'
+              );
+            }
+            
+            const result = await this.toolHandlers.searchHierarchyIndented(params);
             return {
               content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
             };

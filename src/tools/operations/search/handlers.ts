@@ -1,6 +1,6 @@
 import { Graph } from '@roam-research/roam-api-sdk';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import { TagSearchHandler, BlockRefSearchHandler, HierarchySearchHandler, TextSearchHandler, DatomicSearchHandler, StatusSearchHandler } from '../../../search/index.js';
+import { TagSearchHandler, BlockRefSearchHandler, HierarchySearchHandler, TextSearchHandler, DatomicSearchHandler, StatusSearchHandler, IndentedHierarchyHandler } from '../../../search/index.js';
 import type {
   TagSearchParams,
   BlockRefSearchParams,
@@ -8,7 +8,8 @@ import type {
   TextSearchParams,
   SearchHandlerResult,
   DatomicSearchParams,
-  StatusSearchParams
+  StatusSearchParams,
+  IndentedHierarchyParams
 } from './types.js';
 
 // Base class for all search handlers
@@ -49,6 +50,18 @@ export class HierarchySearchHandlerImpl extends BaseSearchHandler {
 
   async execute() {
     const handler = new HierarchySearchHandler(this.graph, this.params);
+    return handler.execute();
+  }
+}
+
+// Indented Hierarchy search handler
+export class IndentedHierarchyHandlerImpl extends BaseSearchHandler {
+  constructor(graph: Graph, private params: IndentedHierarchyParams) {
+    super(graph);
+  }
+
+  async execute() {
+    const handler = new IndentedHierarchyHandler(this.graph, this.params);
     return handler.execute();
   }
 }

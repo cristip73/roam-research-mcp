@@ -256,6 +256,34 @@ export const toolSchemas = {
       // Note: Validation for either parent_uid or child_uid is handled in the server code
     }
   },
+  roam_search_hierarchy_indented: {
+    name: 'roam_search_hierarchy_indented',
+    description: 'Generate an indented list representing the hierarchy of blocks, either parents or children of a reference block. Creates a readable, nested representation of the block structure.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        parent_uid: {
+          type: 'string',
+          description: 'Optional: UID of the block to find children of'
+        },
+        child_uid: {
+          type: 'string',
+          description: 'Optional: UID of the block to find parents of'
+        },
+        page_title_uid: {
+          type: 'string',
+          description: 'Optional: Title or UID of the page to search in'
+        },
+        max_depth: {
+          type: 'integer',
+          description: 'Optional: How many levels deep to search (default: 1)',
+          minimum: 1,
+          maximum: 10
+        }
+      }
+      // Note: Validation for either parent_uid or child_uid is handled in the server code
+    }
+  },
   roam_find_pages_modified_today: {
     name: 'roam_find_pages_modified_today',
     description: 'Find pages that have been modified today (since midnight), with limit.',
