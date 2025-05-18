@@ -709,6 +709,42 @@ Returns:
 }
 ```
 
+### Indented Block Hierarchy
+
+Generate a reader‑friendly nested list for a block hierarchy:
+
+```typescript
+use_mcp_tool roam-research roam_search_hierarchy_indented {
+  "parent_uid": "optional-parent-block-uid",
+  "child_uid": "optional-child-block-uid",
+  "page_title_uid": "optional-page-title-or-uid",
+  "max_depth": 3,
+  "part": 1
+}
+```
+
+Features:
+
+- Same search options as `roam_search_hierarchy`
+- Returns one match whose `content` field is an indented bullet list
+- Large hierarchies may be split into parts (use the `part` parameter to request others)
+
+Example return:
+
+```json
+{
+  "success": true,
+  "matches": [
+    {
+      "block_uid": "indented_hierarchy",
+      "content": "- Parent\n  - Child", 
+      "is_indented_hierarchy": true
+    }
+  ],
+  "message": "Found N blocks in hierarchy"
+}
+```
+
 ## Error Handling
 
 The server provides comprehensive error handling for common scenarios:
