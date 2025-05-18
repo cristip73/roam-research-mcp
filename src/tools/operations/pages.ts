@@ -12,6 +12,10 @@ import {
   hasMarkdownTable 
 } from '../../markdown-utils.js';
 
+// Retry configuration
+const PAGE_MAX_RETRIES = 8;
+const INITIAL_RETRY_DELAY = 2000;
+
 export class PageOperations {
   private limiter = createToolLimiter();
   constructor(private graph: Graph) {}
@@ -69,91 +73,144 @@ export class PageOperations {
     }
   }
 
-  async createPage(title: string, content?: Array<{text: string; level: number}>): Promise<{ success: boolean; uid: string }> {
-    // Ensure title is properly formatted
-    const pageTitle = String(title).trim();
+  /**
+   * Helper function to retry operations with exponential backoff
+   */
+  private async retryWithBackoff<T>(
+    operation: () => Promise<T>,
+    maxRetries: number = PAGE_MAX_RETRIES,
+    initialDelay: number = INITIAL_RETRY_DELAY
+  ): Promise<T> {
+    let lastError: Error | null = null;
     
-    // First try to find if the page exists
-    const findQuery = `[:find ?uid :in $ ?title :where [?e :node/title ?title] [?e :block/uid ?uid]]`;
-    type FindResult = [string];
-    const findResults = await q(this.graph, findQuery, [pageTitle], this.limiter) as FindResult[];
-    
-    let pageUid: string | undefined;
-    
-    if (findResults && findResults.length > 0) {
-      // Page exists, use its UID
-      pageUid = findResults[0][0];
-    } else {
-      // Create new page
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        await createRoamPage(this.graph, {
-          action: 'create-page',
-          page: {
-            title: pageTitle
-          }
-        }, this.limiter);
-
-        // Get the new page's UID
-        const results = await q(this.graph, findQuery, [pageTitle], this.limiter) as FindResult[];
-        if (!results || results.length === 0) {
-          throw new Error('Could not find created page');
-        }
-        pageUid = results[0][0];
+        return await operation();
       } catch (error) {
-        throw new McpError(
-          ErrorCode.InternalError,
-          `Failed to create page: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    }
-    
-    // If content is provided, create blocks with explicit levels
-    if (content && content.length > 0) {
-      try {
-        // Create blocks in order, tracking parent UIDs for each level
-        const levelParents: { [level: number]: string } = {};
-        let currentOrder = 0;
+        lastError = error as Error;
+        const isRateLimitError = 
+          error instanceof Error && 
+          (error.message.includes('Too many requests') || 
+           error.message.includes('rate limit'));
         
-        for (const block of content) {
-          const parentUid = block.level === 1 ? pageUid : levelParents[block.level - 1];
-          
-          if (block.level > 1 && !parentUid) {
-            throw new Error(`Invalid block hierarchy: level ${block.level} block has no parent`);
-          }
-          
-          const blockResult = await createBlock(this.graph, {
-            action: 'create-block',
-            location: {
-              'parent-uid': parentUid,
-              order: 'last'
-            },
-            block: { string: block.text }
-          }, this.limiter);
-          
-          if (!blockResult) {
-            throw new Error('Failed to create block');
-          }
-          
-          // Store this block's UID for potential child blocks
-          const blockQuery = `[:find ?uid . :in $ ?text :where [?b :block/string ?text] [?b :block/uid ?uid]]`;
-          const blockUid = await q(this.graph, blockQuery, [block.text], this.limiter);
-          
-          if (!blockUid) {
-            throw new Error('Could not find created block');
-          }
-          
-          levelParents[block.level] = String(blockUid);
-          currentOrder++;
+        if (!isRateLimitError) {
+          throw error; // Not a rate limit error, don't retry
         }
-      } catch (error) {
-        throw new McpError(
-          ErrorCode.InternalError,
-          `Failed to add content to page: ${error instanceof Error ? error.message : String(error)}`
-        );
+        
+        // Calculate delay with exponential backoff
+        const delay = initialDelay * Math.pow(2, attempt);
+        console.warn(`Rate limit hit in PageOperations, retrying after ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
     
-    return { success: true, uid: pageUid };
+    throw lastError || new Error('Failed after maximum retry attempts');
+  }
+
+  async createPage(title: string, content?: Array<{text: string; level: number}>): Promise<{ success: boolean; uid: string }> {
+    return this.retryWithBackoff(async () => {
+      // Ensure title is properly formatted
+      const pageTitle = String(title).trim();
+      
+      // First try to find if the page exists
+      const findQuery = `[:find ?uid :in $ ?title :where [?e :node/title ?title] [?e :block/uid ?uid]]`;
+      type FindResult = [string];
+      const findResults = await q(this.graph, findQuery, [pageTitle], this.limiter) as FindResult[];
+      
+      let pageUid: string | undefined;
+      
+      if (findResults && findResults.length > 0) {
+        // Page exists, use its UID
+        pageUid = findResults[0][0];
+      } else {
+        // Create new page
+        try {
+          await createRoamPage(this.graph, {
+            action: 'create-page',
+            page: {
+              title: pageTitle
+            }
+          }, this.limiter);
+
+          // Get the new page's UID
+          const results = await q(this.graph, findQuery, [pageTitle], this.limiter) as FindResult[];
+          if (!results || results.length === 0) {
+            throw new Error('Could not find created page');
+          }
+          pageUid = results[0][0];
+        } catch (error) {
+          throw new McpError(
+            ErrorCode.InternalError,
+            `Failed to create page: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+      }
+      
+      // If content is provided, create blocks with explicit levels
+      if (content && content.length > 0) {
+        try {
+          // Use batch actions to create all blocks at once
+          const batchLimit = 10; // Process blocks in smaller batches to avoid overloading
+          const levelParents: { [level: number]: string } = {};
+          
+          // Process blocks in batches
+          for (let i = 0; i < content.length; i += batchLimit) {
+            const batchBlocks = content.slice(i, i + batchLimit);
+            const actions = [];
+            
+            for (const block of batchBlocks) {
+              const parentUid = block.level === 1 ? pageUid : levelParents[block.level - 1];
+              
+              if (block.level > 1 && !parentUid) {
+                throw new Error(`Invalid block hierarchy: level ${block.level} block has no parent`);
+              }
+              
+              // Generate unique temporary uid for this block
+              const tmpUid = `tmp-${Math.random().toString(36).substring(2, 10)}`;
+              
+              actions.push({
+                action: 'create-block',
+                location: {
+                  'parent-uid': parentUid,
+                  order: 'last'
+                },
+                block: { 
+                  string: block.text,
+                  uid: tmpUid
+                }
+              });
+              
+              // Save temporary UID for hierarchical structuring
+              levelParents[block.level] = tmpUid;
+            }
+            
+            // Execute batch action
+            if (actions.length > 0) {
+              const batchResult = await batchActions(this.graph, {
+                action: 'batch-actions',
+                actions
+              }, this.limiter);
+              
+              if (!batchResult) {
+                throw new Error('Failed to create batch of blocks');
+              }
+            }
+            
+            // If we have more batches to process, add a small delay
+            if (i + batchLimit < content.length) {
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+          }
+        } catch (error) {
+          throw new McpError(
+            ErrorCode.InternalError,
+            `Failed to add content to page: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+      }
+      
+      return { success: true, uid: pageUid };
+    });
   }
 
   async fetchPageByTitle(title: string): Promise<string> {
