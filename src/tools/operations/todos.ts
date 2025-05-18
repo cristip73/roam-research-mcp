@@ -1,8 +1,11 @@
-import { Graph, q, createBlock, createPage, batchActions } from '@roam-research/roam-api-sdk';
+import type { Graph } from '@roam-research/roam-api-sdk';
+import { q, createBlock, createPage, batchActions } from '../../utils/roam-api-wrapper.js';
+import { createToolLimiter } from '../../utils/rate-limiter.js';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { formatRoamDate } from '../../utils/helpers.js';
 
 export class TodoOperations {
+  private limiter = createToolLimiter();
   constructor(private graph: Graph) {}
 
   async addTodos(todos: string[]): Promise<{ success: boolean }> {
@@ -19,7 +22,7 @@ export class TodoOperations {
     
     // Try to find today's page
     const findQuery = `[:find ?uid :in $ ?title :where [?e :node/title ?title] [?e :block/uid ?uid]]`;
-    const findResults = await q(this.graph, findQuery, [dateStr]) as [string][];
+    const findResults = await q(this.graph, findQuery, [dateStr], this.limiter) as [string][];
     
     let targetPageUid: string;
     
@@ -31,10 +34,10 @@ export class TodoOperations {
         await createPage(this.graph, {
           action: 'create-page',
           page: { title: dateStr }
-        });
+        }, this.limiter);
 
         // Get the new page's UID
-        const results = await q(this.graph, findQuery, [dateStr]) as [string][];
+        const results = await q(this.graph, findQuery, [dateStr], this.limiter) as [string][];
         if (!results || results.length === 0) {
           throw new Error('Could not find created today\'s page');
         }
@@ -61,7 +64,7 @@ export class TodoOperations {
       const result = await batchActions(this.graph, {
         action: 'batch-actions',
         actions
-      });
+      }, this.limiter);
 
       if (!result) {
         throw new Error('Failed to create todo blocks');
@@ -72,12 +75,12 @@ export class TodoOperations {
         try {
           await createBlock(this.graph, {
             action: 'create-block',
-            location: { 
+            location: {
               "parent-uid": targetPageUid,
               "order": "last"
             },
             block: { string: `${todo_tag} ${todo}` }
-          });
+          }, this.limiter);
         } catch (error) {
           throw new Error('Failed to create todo block');
         }

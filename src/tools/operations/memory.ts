@@ -1,4 +1,6 @@
-import { Graph, q, createBlock, createPage } from '@roam-research/roam-api-sdk';
+import type { Graph } from '@roam-research/roam-api-sdk';
+import { q, createBlock, createPage } from '../../utils/roam-api-wrapper.js';
+import { createToolLimiter } from '../../utils/rate-limiter.js';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { formatRoamDate } from '../../utils/helpers.js';
 import { resolveRefs } from '../helpers/refs.js';
@@ -7,6 +9,7 @@ import type { SearchResult } from '../types/index.js';
 
 export class MemoryOperations {
   private searchOps: SearchOperations;
+  private limiter = createToolLimiter();
 
   constructor(private graph: Graph) {
     this.searchOps = new SearchOperations(graph);
@@ -19,7 +22,7 @@ export class MemoryOperations {
     
     // Try to find today's page
     const findQuery = `[:find ?uid :in $ ?title :where [?e :node/title ?title] [?e :block/uid ?uid]]`;
-    const findResults = await q(this.graph, findQuery, [dateStr]) as [string][];
+    const findResults = await q(this.graph, findQuery, [dateStr], this.limiter) as [string][];
     
     let pageUid: string;
     
@@ -31,10 +34,10 @@ export class MemoryOperations {
         await createPage(this.graph, {
           action: 'create-page',
           page: { title: dateStr }
-        });
+        }, this.limiter);
 
         // Get the new page's UID
-        const results = await q(this.graph, findQuery, [dateStr]) as [string][];
+        const results = await q(this.graph, findQuery, [dateStr], this.limiter) as [string][];
         if (!results || results.length === 0) {
           throw new McpError(
             ErrorCode.InternalError,
@@ -71,12 +74,12 @@ export class MemoryOperations {
     try {
       await createBlock(this.graph, {
         action: 'create-block',
-        location: { 
+        location: {
           "parent-uid": pageUid,
           "order": "last"
         },
         block: { string: blockContent }
-      });
+      }, this.limiter);
     } catch (error) {
       throw new McpError(
         ErrorCode.InternalError,
@@ -119,7 +122,7 @@ export class MemoryOperations {
                          (ancestor ?block ?page)]`;
       
       // Execute query
-      const pageResults = await q(this.graph, pageQuery, [ancestorRule, tagText]) as [string, number][];
+      const pageResults = await q(this.graph, pageQuery, [ancestorRule, tagText], this.limiter) as [string, number][];
 
       // Process page blocks with sorting
       let pageMemories = pageResults

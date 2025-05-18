@@ -1,4 +1,6 @@
-import { Graph, q, createBlock as createRoamBlock, updateBlock as updateRoamBlock, batchActions, createPage } from '@roam-research/roam-api-sdk';
+import type { Graph } from '@roam-research/roam-api-sdk';
+import { q, createBlock as createRoamBlock, updateBlock as updateRoamBlock, batchActions, createPage } from '../../utils/roam-api-wrapper.js';
+import { createToolLimiter } from '../../utils/rate-limiter.js';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { formatRoamDate } from '../../utils/helpers.js';
 import { 
@@ -11,6 +13,7 @@ import {
 import type { BlockUpdate, BlockUpdateResult } from '../types/index.js';
 
 export class BlockOperations {
+  private limiter = createToolLimiter();
   constructor(private graph: Graph) {}
 
   async createBlock(content: string, page_uid?: string, title?: string): Promise<{ success: boolean; block_uid?: string; parent_uid: string }> {
@@ -20,7 +23,7 @@ export class BlockOperations {
     // If no page_uid but title provided, search for page by title
     if (!targetPageUid && title) {
       const findQuery = `[:find ?uid :in $ ?title :where [?e :node/title ?title] [?e :block/uid ?uid]]`;
-      const findResults = await q(this.graph, findQuery, [title]) as [string][];
+      const findResults = await q(this.graph, findQuery, [title], this.limiter) as [string][];
       
       if (findResults && findResults.length > 0) {
         targetPageUid = findResults[0][0];
@@ -30,10 +33,10 @@ export class BlockOperations {
           await createPage(this.graph, {
             action: 'create-page',
             page: { title }
-          });
+          }, this.limiter);
 
           // Get the new page's UID
-          const results = await q(this.graph, findQuery, [title]) as [string][];
+          const results = await q(this.graph, findQuery, [title], this.limiter) as [string][];
           if (!results || results.length === 0) {
             throw new Error('Could not find created page');
           }
@@ -54,7 +57,7 @@ export class BlockOperations {
       
       // Try to find today's page
       const findQuery = `[:find ?uid :in $ ?title :where [?e :node/title ?title] [?e :block/uid ?uid]]`;
-      const findResults = await q(this.graph, findQuery, [dateStr]) as [string][];
+      const findResults = await q(this.graph, findQuery, [dateStr], this.limiter) as [string][];
       
       if (findResults && findResults.length > 0) {
         targetPageUid = findResults[0][0];
@@ -64,10 +67,10 @@ export class BlockOperations {
           await createPage(this.graph, {
             action: 'create-page',
             page: { title: dateStr }
-          });
+          }, this.limiter);
 
           // Get the new page's UID
-          const results = await q(this.graph, findQuery, [dateStr]) as [string][];
+          const results = await q(this.graph, findQuery, [dateStr], this.limiter) as [string][];
           if (!results || results.length === 0) {
             throw new Error('Could not find created today\'s page');
           }
@@ -93,7 +96,7 @@ export class BlockOperations {
         const result = await batchActions(this.graph, {
           action: 'batch-actions',
           actions
-        });
+        }, this.limiter);
 
         if (!result) {
           throw new Error('Failed to create nested blocks');
@@ -109,12 +112,12 @@ export class BlockOperations {
         // For non-table content, create a simple block
         await createRoamBlock(this.graph, {
           action: 'create-block',
-          location: { 
+          location: {
             "parent-uid": targetPageUid,
             "order": "last"
           },
           block: { string: content }
-        });
+        }, this.limiter);
 
         // Get the block's UID
         const findBlockQuery = `[:find ?uid
@@ -123,7 +126,7 @@ export class BlockOperations {
                                      [?b :block/string ?string]
                                      [?b :block/parents ?p]
                                      [?p :block/uid ?parent]]`;
-        const blockResults = await q(this.graph, findBlockQuery, [targetPageUid, content]) as [string][];
+        const blockResults = await q(this.graph, findBlockQuery, [targetPageUid, content], this.limiter) as [string][];
         
         if (!blockResults || blockResults.length === 0) {
           throw new Error('Could not find created block');
@@ -156,7 +159,7 @@ export class BlockOperations {
     const blockQuery = `[:find ?string .
                         :where [?b :block/uid "${block_uid}"]
                                [?b :block/string ?string]]`;
-    const result = await q(this.graph, blockQuery, []);
+    const result = await q(this.graph, blockQuery, [], this.limiter);
     if (result === null || result === undefined) {
       throw new McpError(
         ErrorCode.InvalidRequest,
@@ -192,7 +195,7 @@ export class BlockOperations {
           uid: block_uid,
           string: newContent
         }
-      });
+      }, this.limiter);
 
       return { 
         success: true,
@@ -236,7 +239,7 @@ export class BlockOperations {
                         :in $ [?uid ...]
                         :where [?b :block/uid ?uid]
                                [?b :block/string ?string]]`;
-    const blockResults = await q(this.graph, blockQuery, [blockUids]) as [string, string][];
+    const blockResults = await q(this.graph, blockQuery, [blockUids], this.limiter) as [string, string][];
     
     // Create map of uid -> current content
     const contentMap = new Map<string, string>();
@@ -303,7 +306,7 @@ export class BlockOperations {
         const batchResult = await batchActions(this.graph, {
           action: 'batch-actions',
           actions
-        });
+        }, this.limiter);
 
         if (!batchResult) {
           throw new Error('Batch update failed');

@@ -1,4 +1,6 @@
-import { Graph, q, createPage as createRoamPage, batchActions, createBlock } from '@roam-research/roam-api-sdk';
+import type { Graph } from '@roam-research/roam-api-sdk';
+import { q, createPage as createRoamPage, batchActions, createBlock } from '../../utils/roam-api-wrapper.js';
+import { createToolLimiter } from '../../utils/rate-limiter.js';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { capitalizeWords } from '../helpers/text.js';
 import { resolveRefs } from '../helpers/refs.js';
@@ -11,6 +13,7 @@ import {
 } from '../../markdown-utils.js';
 
 export class PageOperations {
+  private limiter = createToolLimiter();
   constructor(private graph: Graph) {}
 
   async findPagesModifiedToday(max_num_pages: number = 50) {
@@ -73,7 +76,7 @@ export class PageOperations {
     // First try to find if the page exists
     const findQuery = `[:find ?uid :in $ ?title :where [?e :node/title ?title] [?e :block/uid ?uid]]`;
     type FindResult = [string];
-    const findResults = await q(this.graph, findQuery, [pageTitle]) as FindResult[];
+    const findResults = await q(this.graph, findQuery, [pageTitle], this.limiter) as FindResult[];
     
     let pageUid: string | undefined;
     
@@ -88,10 +91,10 @@ export class PageOperations {
           page: {
             title: pageTitle
           }
-        });
+        }, this.limiter);
 
         // Get the new page's UID
-        const results = await q(this.graph, findQuery, [pageTitle]) as FindResult[];
+        const results = await q(this.graph, findQuery, [pageTitle], this.limiter) as FindResult[];
         if (!results || results.length === 0) {
           throw new Error('Could not find created page');
         }
@@ -125,7 +128,7 @@ export class PageOperations {
               order: 'last'
             },
             block: { string: block.text }
-          });
+          }, this.limiter);
           
           if (!blockResult) {
             throw new Error('Failed to create block');
@@ -133,7 +136,7 @@ export class PageOperations {
           
           // Store this block's UID for potential child blocks
           const blockQuery = `[:find ?uid . :in $ ?text :where [?b :block/string ?text] [?b :block/uid ?uid]]`;
-          const blockUid = await q(this.graph, blockQuery, [block.text]);
+          const blockUid = await q(this.graph, blockQuery, [block.text], this.limiter);
           
           if (!blockUid) {
             throw new Error('Could not find created block');
@@ -173,7 +176,7 @@ export class PageOperations {
       const searchQuery = `[:find ?uid .
                           :where [?e :node/title "${variation}"]
                                  [?e :block/uid ?uid]]`;
-      const result = await q(this.graph, searchQuery, []);
+      const result = await q(this.graph, searchQuery, [], this.limiter);
       uid = (result === null || result === undefined) ? null : String(result);
       if (uid) break;
     }
@@ -204,7 +207,7 @@ export class PageOperations {
                                (ancestor ?block ?page)
                                [?parent :block/children ?block]
                                [?parent :block/uid ?parent-uid]]`;
-    const blocks = await q(this.graph, blocksQuery, [ancestorRule, title]);
+    const blocks = await q(this.graph, blocksQuery, [ancestorRule, title], this.limiter);
 
     if (!blocks || blocks.length === 0) {
       return `${title} (no content found)`;

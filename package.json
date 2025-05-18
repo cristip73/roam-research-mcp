@@ -36,7 +36,8 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.11.4",
     "@roam-research/roam-api-sdk": "^0.10.0",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "bottleneck": "^2.19.5"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",

@@ -1,4 +1,6 @@
-import { Graph, q, createPage, createBlock, batchActions } from '@roam-research/roam-api-sdk';
+import type { Graph } from '@roam-research/roam-api-sdk';
+import { q, createPage, createBlock, batchActions } from '../../utils/roam-api-wrapper.js';
+import { createToolLimiter } from '../../utils/rate-limiter.js';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { formatRoamDate } from '../../utils/helpers.js';
 import { capitalizeWords } from '../helpers/text.js';
@@ -12,6 +14,7 @@ import {
 import type { OutlineItem } from '../types/index.js';
 
 export class OutlineOperations {
+  private limiter = createToolLimiter();
   constructor(private graph: Graph) {}
 
   async createOutline(
@@ -65,7 +68,7 @@ export class OutlineOperations {
       for (let retry = 0; retry < maxRetries; retry++) {
         // Try each case variation
         for (const variation of variations) {
-          const findResults = await q(this.graph, titleQuery, [variation]) as [string][];
+          const findResults = await q(this.graph, titleQuery, [variation], this.limiter) as [string][];
           if (findResults && findResults.length > 0) {
             return findResults[0][0];
           }
@@ -75,7 +78,7 @@ export class OutlineOperations {
         const uidQuery = `[:find ?uid
                           :where [?e :block/uid "${titleOrUid}"]
                                  [?e :block/uid ?uid]]`;
-        const uidResult = await q(this.graph, uidQuery, []);
+        const uidResult = await q(this.graph, uidQuery, [], this.limiter);
         if (uidResult && uidResult.length > 0) {
           return uidResult[0][0];
         }
@@ -85,7 +88,7 @@ export class OutlineOperations {
           const success = await createPage(this.graph, {
             action: 'create-page',
             page: { title: titleOrUid }
-          });
+          }, this.limiter);
 
           // Even if createPage returns false, the page might still have been created
           // Wait a bit and continue to next retry
@@ -142,7 +145,7 @@ export class OutlineOperations {
       for (let retry = 0; retry < maxRetries; retry++) {
         // Try each query strategy
         for (const queryStr of queries) {
-          const blockResults = await q(this.graph, queryStr, []) as [string, number][];
+          const blockResults = await q(this.graph, queryStr, [], this.limiter) as [string, number][];
           if (blockResults && blockResults.length > 0) {
             // Use the most recently created block
             const sorted = blockResults.sort((a, b) => b[1] - a[1]);
@@ -188,7 +191,7 @@ export class OutlineOperations {
               order: 'last'
             },
             block: { string: content }
-          });
+          }, this.limiter);
 
           // Wait with exponential backoff
           const delay = initialDelay * Math.pow(2, retry);
@@ -235,7 +238,7 @@ export class OutlineOperations {
           const uidQuery = `[:find ?uid
                            :where [?e :block/uid "${block_text_uid}"]
                                   [?e :block/uid ?uid]]`;
-          const uidResult = await q(this.graph, uidQuery, []) as [string][];
+          const uidResult = await q(this.graph, uidQuery, [], this.limiter) as [string][];
           
           if (uidResult && uidResult.length > 0) {
             // Use existing block if found
@@ -304,7 +307,7 @@ export class OutlineOperations {
       result = await batchActions(this.graph, {
         action: 'batch-actions',
         actions
-      }).catch(error => {
+      }, this.limiter).catch(error => {
         throw new McpError(
           ErrorCode.InternalError,
           `Failed to create outline blocks: ${error.message}`
@@ -349,7 +352,7 @@ export class OutlineOperations {
     
     if (!targetPageUid && page_title) {
       const findQuery = `[:find ?uid :in $ ?title :where [?e :node/title ?title] [?e :block/uid ?uid]]`;
-      const findResults = await q(this.graph, findQuery, [page_title]) as [string][];
+      const findResults = await q(this.graph, findQuery, [page_title], this.limiter) as [string][];
       
       if (findResults && findResults.length > 0) {
         targetPageUid = findResults[0][0];
@@ -367,7 +370,7 @@ export class OutlineOperations {
       const dateStr = formatRoamDate(today);
       
       const findQuery = `[:find ?uid :in $ ?title :where [?e :node/title ?title] [?e :block/uid ?uid]]`;
-      const findResults = await q(this.graph, findQuery, [dateStr]) as [string][];
+      const findResults = await q(this.graph, findQuery, [dateStr], this.limiter) as [string][];
       
       if (findResults && findResults.length > 0) {
         targetPageUid = findResults[0][0];
@@ -377,9 +380,9 @@ export class OutlineOperations {
           await createPage(this.graph, {
             action: 'create-page',
             page: { title: dateStr }
-          });
+          }, this.limiter);
 
-          const results = await q(this.graph, findQuery, [dateStr]) as [string][];
+          const results = await q(this.graph, findQuery, [dateStr], this.limiter) as [string][];
           if (!results || results.length === 0) {
             throw new McpError(
               ErrorCode.InternalError,
@@ -412,7 +415,7 @@ export class OutlineOperations {
                              :where [?p :block/uid "${targetPageUid}"]
                                     [?b :block/page ?p]
                                     [?b :block/string "${parent_string}"]]`;
-      const blockResults = await q(this.graph, findBlockQuery, []) as [string][];
+      const blockResults = await q(this.graph, findBlockQuery, [], this.limiter) as [string][];
       
       if (!blockResults || blockResults.length === 0) {
         throw new McpError(
@@ -444,7 +447,7 @@ export class OutlineOperations {
       const result = await batchActions(this.graph, {
         action: 'batch-actions',
         actions
-      });
+      }, this.limiter);
 
       if (!result) {
         throw new McpError(
@@ -467,12 +470,12 @@ export class OutlineOperations {
       try {
         await createBlock(this.graph, {
           action: 'create-block',
-          location: { 
+          location: {
             "parent-uid": targetParentUid,
             order
           },
           block: { string: content }
-        });
+        }, this.limiter);
       } catch (error) {
         throw new McpError(
           ErrorCode.InternalError,

@@ -1,4 +1,4 @@
-import { q } from '@roam-research/roam-api-sdk';
+import { q } from '../utils/roam-api-wrapper.js';
 import type { Graph } from '@roam-research/roam-api-sdk';
 import { BaseSearchHandler, TagSearchParams, SearchResult } from './types.js';
 import { SearchUtils } from './utils.js';
