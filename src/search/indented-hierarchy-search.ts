@@ -58,7 +58,7 @@ export class IndentedHierarchyHandler extends BaseSearchHandler {
    * @param maxSize Dimensiunea maximă pentru fiecare parte
    * @returns Array de părți de text
    */
-  private splitTextIntoParts(text: string, maxSize: number = 5000): string[] {
+  private splitTextIntoParts(text: string, maxSize: number = 10000): string[] {
     const parts: string[] = [];
     let remainingText = text;
     
@@ -192,7 +192,7 @@ export class IndentedHierarchyHandler extends BaseSearchHandler {
       }
 
       // Verificăm dacă trebuie să împărțim rezultatul în părți
-      if (indentedList.length > 5000) {
+      if (indentedList.length > 10000) {
         const parts = this.splitTextIntoParts(indentedList);
         const totalParts = parts.length;
         const requestedPart = Math.min(Math.max(1, part), totalParts);
