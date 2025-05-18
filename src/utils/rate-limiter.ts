@@ -1,9 +1,10 @@
 import Bottleneck from 'bottleneck';
 
 export const globalLimiter = new Bottleneck({
-  reservoir: 300,
-  reservoirRefreshAmount: 300,
+  reservoir: 240,
+  reservoirRefreshAmount: 240,
   reservoirRefreshInterval: 60 * 1000,
+  minTime: 150,
   maxConcurrent: 1
 });
 
