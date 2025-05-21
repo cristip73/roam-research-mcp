@@ -38,12 +38,12 @@ export class ToolHandlers {
   }
 
   // Block Operations
-  async createBlock(content: string, page_uid?: string, title?: string) {
-    return this.blockOps.createBlock(content, page_uid, title);
+  async createBlock(content: string, page_uid?: string, title?: string, heading?: number) {
+    return this.blockOps.createBlock(content, page_uid, title, heading);
   }
 
-  async updateBlock(block_uid: string, content?: string, transform?: (currentContent: string) => string) {
-    return this.blockOps.updateBlock(block_uid, content, transform);
+  async updateBlock(block_uid: string, content?: string, transform?: (currentContent: string) => string, heading?: number) {
+    return this.blockOps.updateBlock(block_uid, content, transform, heading);
   }
 
   async updateBlocks(updates: Array<{

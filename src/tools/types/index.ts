@@ -21,7 +21,8 @@ export interface BlockUpdateResult {
 export interface BlockUpdate {
   block_uid: string;
   content?: string;
-  transform?: { 
+  heading?: number;
+  transform?: {
     find: string;
     replace: string;
     global?: boolean;

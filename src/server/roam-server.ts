@@ -110,12 +110,21 @@ export class RoamServer {
           }
 
           case 'roam_create_block': {
-            const { content, page_uid, title } = request.params.arguments as {
+            const { content, page_uid, title, heading } = request.params.arguments as {
               content: string;
               page_uid?: string;
               title?: string;
+              heading?: number;
             };
-            const result = await this.toolHandlers.createBlock(content, page_uid, title);
+
+            if (!content) {
+              throw new McpError(
+                ErrorCode.InvalidRequest,
+                'content is required'
+              );
+            }
+
+            const result = await this.toolHandlers.createBlock(content, page_uid, title, heading);
             return {
               content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
             };
@@ -290,9 +299,10 @@ export class RoamServer {
           }
 
           case 'roam_update_block': {
-            const { block_uid, content, transform_pattern } = request.params.arguments as {
+            const { block_uid, content, transform_pattern, heading } = request.params.arguments as {
               block_uid: string;
               content?: string;
+              heading?: number;
               transform_pattern?: {
                 find: string;
                 replace: string;
@@ -310,7 +320,7 @@ export class RoamServer {
 
             let result;
             if (content) {
-              result = await this.toolHandlers.updateBlock(block_uid, content);
+              result = await this.toolHandlers.updateBlock(block_uid, content, undefined, heading);
             } else {
               // We know transform_pattern exists due to validation above
               result = await this.toolHandlers.updateBlock(
@@ -319,7 +329,8 @@ export class RoamServer {
                 (currentContent: string) => {
                   const regex = new RegExp(transform_pattern!.find, transform_pattern!.global !== false ? 'g' : '');
                   return currentContent.replace(regex, transform_pattern!.replace);
-                }
+                },
+                heading
               );
             }
             return {

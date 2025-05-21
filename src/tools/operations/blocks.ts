@@ -16,7 +16,7 @@ export class BlockOperations {
   private limiter = createToolLimiter();
   constructor(private graph: Graph) {}
 
-  async createBlock(content: string, page_uid?: string, title?: string): Promise<{ success: boolean; block_uid?: string; parent_uid: string }> {
+  async createBlock(content: string, page_uid?: string, title?: string, heading?: number): Promise<{ success: boolean; block_uid?: string; parent_uid: string }> {
     // If page_uid provided, use it directly
     let targetPageUid = page_uid;
     
@@ -116,7 +116,10 @@ export class BlockOperations {
             "parent-uid": targetPageUid,
             "order": "last"
           },
-          block: { string: content }
+          block: { 
+            string: content,
+            ...(heading !== undefined ? { heading } : {})
+          }
         }, this.limiter);
 
         // Get the block's UID
@@ -147,7 +150,7 @@ export class BlockOperations {
     }
   }
 
-  async updateBlock(block_uid: string, content?: string, transform?: (currentContent: string) => string): Promise<{ success: boolean; content: string }> {
+  async updateBlock(block_uid: string, content?: string, transform?: (currentContent: string) => string, heading?: number): Promise<{ success: boolean; content: string }> {
     if (!block_uid) {
       throw new McpError(
         ErrorCode.InvalidRequest,
@@ -193,7 +196,8 @@ export class BlockOperations {
         action: 'update-block',
         block: {
           uid: block_uid,
-          string: newContent
+          string: newContent,
+          ...(heading !== undefined ? { heading } : {})
         }
       }, this.limiter);
 
@@ -281,7 +285,8 @@ export class BlockOperations {
           action: 'update-block',
           block: {
             uid: update.block_uid,
-            string: newContent
+            string: newContent,
+            ...(update.heading !== undefined ? { heading: update.heading } : {})
           }
         });
 

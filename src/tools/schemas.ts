@@ -57,6 +57,12 @@ export const toolSchemas = {
                 description: 'Indentation level (1-10, where 1 is top level)',
                 minimum: 1,
                 maximum: 10
+              },
+              heading: {
+                type: 'number',
+                description: 'Optional heading level (1-3)',
+                minimum: 1,
+                maximum: 3
               }
             },
             required: ['text', 'level']
@@ -84,6 +90,12 @@ export const toolSchemas = {
           type: 'string',
           description: 'Optional: Title of the page to add block to (defaults to today\'s date if neither page_uid nor title provided)',
         },
+        heading: {
+          type: 'number',
+          description: 'Optional heading level (1-3)',
+          minimum: 1,
+          maximum: 3
+        }
       },
       required: ['content'],
     },
@@ -117,6 +129,12 @@ export const toolSchemas = {
                 description: 'Indentation level (1-10, where 1 is top level)',
                 minimum: 1,
                 maximum: 10
+              },
+              heading: {
+                type: 'number',
+                description: 'Optional heading level (1-3)',
+                minimum: 1,
+                maximum: 3
               }
             },
             required: ['text', 'level']
@@ -330,6 +348,12 @@ export const toolSchemas = {
           type: 'string',
           description: 'New content for the block. If not provided, transform_pattern will be used.'
         },
+        heading: {
+          type: 'number',
+          description: 'Optional heading level (1-3)',
+          minimum: 1,
+          maximum: 3
+        },
         transform_pattern: {
           type: 'object',
           description: 'Pattern to transform the current content. Used if content is not provided.',
@@ -375,6 +399,12 @@ export const toolSchemas = {
                 type: 'string',
                 description: 'New content for the block. If not provided, transform will be used.'
               },
+              heading: {
+                type: 'number',
+                description: 'Optional heading level (1-3)',
+                minimum: 1,
+                maximum: 3
+              },
               transform: {
                 type: 'object',
                 description: 'Pattern to transform the current content. Used if content is not provided.',
@@ -397,7 +427,6 @@ export const toolSchemas = {
               }
             },
             required: ['block_uid']
-            // Note: Validation for either content or transform is handled in the server code
           }
         }
       },
