@@ -20,6 +20,44 @@ export class PageOperations {
   private limiter = createToolLimiter();
   constructor(private graph: Graph) {}
 
+  private escapeRegExp(s: string) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /** Build update-block actions to rewrite links from [[oldTitle]] -> [[newTitle]] (aliases and hashtags too). */
+  private async buildRewriteLinkActions(oldTitle: string, newTitle: string): Promise<{ actions: any[]; count: number }> {
+    const refQuery = `[:find ?buid ?str
+                      :in $ ?title
+                      :where [?p :node/title ?title]
+                             [?b :block/refs ?p]
+                             [?b :block/uid ?buid]
+                             [?b :block/string ?str]]`;
+    const refs = await q(this.graph, refQuery, [oldTitle], this.limiter) as [string, string][];
+    if (!refs || refs.length === 0) return { actions: [], count: 0 };
+
+    const esc = this.escapeRegExp(oldTitle);
+    const pageLinkRe = new RegExp(`\\[\\[${esc}\\]\\]`, 'g');
+    const aliasRe = new RegExp(`\\[([^\\]]+)\\]\\(\\[\\[${esc}\\]\\]\\)`, 'g');
+    const hashTagRe = new RegExp(`#\\[\\[${esc}\\]\\]`, 'g');
+
+    const actions: any[] = [];
+    let count = 0;
+    for (const [uid, str] of refs) {
+      let updated = str;
+      updated = updated.replace(pageLinkRe, `[[${newTitle}]]`);
+      updated = updated.replace(aliasRe, (_m, alias) => `[${alias}]([[${newTitle}]])`);
+      updated = updated.replace(hashTagRe, `#[[${newTitle}]]`);
+      if (updated !== str) {
+        actions.push({
+          action: 'update-block',
+          block: { uid, string: updated }
+        });
+        count++;
+      }
+    }
+    return { actions, count };
+  }
+
   async findPagesModifiedToday(max_num_pages: number = 50) {
     // Define ancestor rule for traversing block hierarchy
     const ancestorRule = `[
@@ -217,8 +255,9 @@ export class PageOperations {
     page_title_uid: string,
     new_title: string,
     allow_merge: boolean = false,
-    children_view_type?: string
-  ): Promise<{ success: boolean; page_uid: string; old_title: string; new_title: string; merged?: boolean }> {
+    children_view_type?: string,
+    rewrite_links: boolean = false
+  ): Promise<{ success: boolean; page_uid: string; old_title: string; new_title: string; merged?: boolean; rewritten?: number }> {
     if (!page_title_uid || !new_title) {
       throw new McpError(
         ErrorCode.InvalidRequest,
@@ -290,11 +329,19 @@ export class PageOperations {
             block: { uid: kidUid }
           });
         }
+
+        // Optionally add rewrite actions before deleting the page
+        let rewritten = 0;
+        if (rewrite_links) {
+          const rw = await this.buildRewriteLinkActions(oldTitle, targetTitle);
+          rewritten = rw.count;
+          actions.push(...rw.actions);
+        }
         actions.push({ action: 'delete-page', page: { uid: pageUid } });
 
         await batchActions(this.graph, { action: 'batch-actions', actions: actions as any }, this.limiter);
 
-        return { success: true, page_uid: existingUid, old_title: oldTitle, new_title: targetTitle, merged: true };
+        return { success: true, page_uid: existingUid, old_title: oldTitle, new_title: targetTitle, merged: true, ...(rewrite_links ? { rewritten } : {}) };
       } else {
         // Simple rename
         await updateRoamPage(this.graph, {
@@ -306,16 +353,25 @@ export class PageOperations {
           }
         }, this.limiter);
 
-        return { success: true, page_uid: pageUid, old_title: oldTitle, new_title: targetTitle };
+        let rewritten = 0;
+        if (rewrite_links) {
+          const rw = await this.buildRewriteLinkActions(oldTitle, targetTitle);
+          if (rw.actions.length > 0) {
+            await batchActions(this.graph, { action: 'batch-actions', actions: rw.actions as any }, this.limiter);
+          }
+          rewritten = rw.count;
+        }
+
+        return { success: true, page_uid: pageUid, old_title: oldTitle, new_title: targetTitle, ...(rewrite_links ? { rewritten } : {}) };
       }
     });
   }
 
   async renamePages(
-    renames: Array<{ page_title_uid: string; new_title: string; allow_merge?: boolean; children_view_type?: string }>
+    renames: Array<{ page_title_uid: string; new_title: string; allow_merge?: boolean; children_view_type?: string; rewrite_links?: boolean }>
   ): Promise<{
     success: boolean;
-    results: Array<{ page_title_uid: string; page_uid?: string; old_title?: string; new_title: string; merged?: boolean; success: boolean; error?: string }>;
+    results: Array<{ page_title_uid: string; page_uid?: string; old_title?: string; new_title: string; merged?: boolean; rewritten?: number; success: boolean; error?: string }>;
   }> {
     if (!Array.isArray(renames) || renames.length === 0) {
       throw new McpError(ErrorCode.InvalidRequest, 'renames must be a non-empty array');
@@ -333,7 +389,7 @@ export class PageOperations {
 
     const uidByTitle = new Map<string, string>();
     const actions: any[] = [];
-    const results: Array<{ page_title_uid: string; page_uid?: string; old_title?: string; new_title: string; merged?: boolean; success: boolean; error?: string }> = [];
+    const results: Array<{ page_title_uid: string; page_uid?: string; old_title?: string; new_title: string; merged?: boolean; rewritten?: number; success: boolean; error?: string }> = [];
 
     // Helper to find UID by title (cache)
     const findUidByTitle = async (title: string) => {
@@ -399,8 +455,15 @@ export class PageOperations {
             block: { uid: kidUid }
           });
         }
+        // optional rewrite
+        let rewritten = 0;
+        if (item.rewrite_links) {
+          const rw = await this.buildRewriteLinkActions(oldTitle, targetTitle);
+          rewritten = rw.count;
+          actions.push(...rw.actions);
+        }
         actions.push({ action: 'delete-page', page: { uid: pageUid } });
-        results.push({ page_title_uid: item.page_title_uid, page_uid: existingUid, old_title: oldTitle, new_title: targetTitle, success: true, merged: true });
+        results.push({ page_title_uid: item.page_title_uid, page_uid: existingUid, old_title: oldTitle, new_title: targetTitle, success: true, merged: true, ...(item.rewrite_links ? { rewritten } : {}) });
       } else {
         actions.push({
           action: 'update-page',
@@ -410,7 +473,13 @@ export class PageOperations {
             ...(item.children_view_type ? { 'children-view-type': item.children_view_type } : {})
           }
         });
-        results.push({ page_title_uid: item.page_title_uid, page_uid: pageUid, old_title: oldTitle, new_title: targetTitle, success: true });
+        if (item.rewrite_links) {
+          const rw = await this.buildRewriteLinkActions(oldTitle, targetTitle);
+          if (rw.actions.length > 0) actions.push(...rw.actions);
+          results.push({ page_title_uid: item.page_title_uid, page_uid: pageUid, old_title: oldTitle, new_title: targetTitle, success: true, rewritten: rw.count });
+        } else {
+          results.push({ page_title_uid: item.page_title_uid, page_uid: pageUid, old_title: oldTitle, new_title: targetTitle, success: true });
+        }
       }
     }
 

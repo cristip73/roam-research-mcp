@@ -91,6 +91,11 @@ export const toolSchemas = {
           description: 'Allow rename when a page with new_title already exists (will merge into it per Roam behavior)',
           default: false
         },
+        rewrite_links: {
+          type: 'boolean',
+          description: 'Also rewrite links from [[old]] to [[new]] across the graph (and aliases, hashtags)',
+          default: false
+        },
         children_view_type: {
           type: 'string',
           description: 'Optional: update the page children view type as part of the rename'
@@ -114,6 +119,7 @@ export const toolSchemas = {
               page_title_uid: { type: 'string', description: 'Exact page title or UID to rename' },
               new_title: { type: 'string', description: 'New title' },
               allow_merge: { type: 'boolean', description: 'Allow merge if target exists', default: false },
+              rewrite_links: { type: 'boolean', description: 'Rewrite links for this rename', default: false },
               children_view_type: { type: 'string', description: 'Optional children view type' }
             },
             required: ['page_title_uid', 'new_title']

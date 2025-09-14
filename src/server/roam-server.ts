@@ -112,22 +112,23 @@ export class RoamServer {
           }
 
           case 'roam_rename_page': {
-            const { page_title_uid, new_title, allow_merge, children_view_type } = request.params.arguments as {
+            const { page_title_uid, new_title, allow_merge, children_view_type, rewrite_links } = request.params.arguments as {
               page_title_uid: string;
               new_title: string;
               allow_merge?: boolean;
               children_view_type?: string;
+              rewrite_links?: boolean;
             };
             if (!page_title_uid || !new_title) {
               throw new McpError(ErrorCode.InvalidRequest, 'page_title_uid and new_title are required');
             }
-            const result = await this.toolHandlers.renamePage(page_title_uid, new_title, allow_merge, children_view_type);
+            const result = await this.toolHandlers.renamePage(page_title_uid, new_title, allow_merge, children_view_type, rewrite_links);
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
 
           case 'roam_rename_multiple_pages': {
             const { renames } = request.params.arguments as {
-              renames: Array<{ page_title_uid: string; new_title: string; allow_merge?: boolean; children_view_type?: string }>
+              renames: Array<{ page_title_uid: string; new_title: string; allow_merge?: boolean; children_view_type?: string; rewrite_links?: boolean }>
             };
             if (!Array.isArray(renames) || renames.length === 0) {
               throw new McpError(ErrorCode.InvalidRequest, 'renames must be a non-empty array');
