@@ -264,30 +264,50 @@ export class PageOperations {
       // Check if a page with the new title already exists
       const existingRaw = await q(this.graph, uidQuery, [targetTitle], this.limiter);
       const existingUid: string | null = (existingRaw === null || existingRaw === undefined) ? null : String(existingRaw);
-      if (existingUid && !allow_merge) {
-        throw new McpError(
-          ErrorCode.InvalidRequest,
-          `A page titled "${targetTitle}" already exists. Set allow_merge=true to proceed.`
-        );
-      }
-
-      // Perform rename via update-page
-      await updateRoamPage(this.graph, {
-        action: 'update-page',
-        page: {
-          uid: pageUid,
-          title: targetTitle,
-          ...(children_view_type ? { 'children-view-type': children_view_type } : {})
+      if (existingUid) {
+        if (!allow_merge) {
+          throw new McpError(
+            ErrorCode.InvalidRequest,
+            `A page titled "${targetTitle}" already exists. Set allow_merge=true to proceed.`
+          );
         }
-      }, this.limiter);
 
-      return {
-        success: true,
-        page_uid: pageUid,
-        old_title: oldTitle,
-        new_title: targetTitle,
-        ...(existingUid ? { merged: true } : {})
-      };
+        // Merge by moving children to target and deleting source page
+        const childrenQuery = `[:find ?uid ?order
+                                :in $ ?page_uid
+                                :where [?p :block/uid ?page_uid]
+                                       [?b :block/page ?p]
+                                       [?b :block/uid ?uid]
+                                       [?b :block/order ?order]]`;
+        const kids = await q(this.graph, childrenQuery, [pageUid], this.limiter) as [string, number][];
+        const sorted = (kids || []).slice().sort((a, b) => (a[1] as number) - (b[1] as number));
+
+        const actions: any[] = [];
+        for (const [kidUid] of sorted) {
+          actions.push({
+            action: 'move-block',
+            location: { 'parent-uid': existingUid, order: 'last' },
+            block: { uid: kidUid }
+          });
+        }
+        actions.push({ action: 'delete-page', page: { uid: pageUid } });
+
+        await batchActions(this.graph, { action: 'batch-actions', actions: actions as any }, this.limiter);
+
+        return { success: true, page_uid: existingUid, old_title: oldTitle, new_title: targetTitle, merged: true };
+      } else {
+        // Simple rename
+        await updateRoamPage(this.graph, {
+          action: 'update-page',
+          page: {
+            uid: pageUid,
+            title: targetTitle,
+            ...(children_view_type ? { 'children-view-type': children_view_type } : {})
+          }
+        }, this.limiter);
+
+        return { success: true, page_uid: pageUid, old_title: oldTitle, new_title: targetTitle };
+      }
     });
   }
 
@@ -358,21 +378,40 @@ export class PageOperations {
       }
 
       const existingUid = await findUidByTitle(targetTitle);
-      if (existingUid && item.allow_merge !== true) {
-        results.push({ page_title_uid: item.page_title_uid, new_title: targetTitle, success: false, error: `Target title exists: "${targetTitle}" (set allow_merge=true)` });
-        continue;
-      }
-
-      actions.push({
-        action: 'update-page',
-        page: {
-          uid: pageUid,
-          title: targetTitle,
-          ...(item.children_view_type ? { 'children-view-type': item.children_view_type } : {})
+      if (existingUid) {
+        if (item.allow_merge !== true) {
+          results.push({ page_title_uid: item.page_title_uid, new_title: targetTitle, success: false, error: `Target title exists: "${targetTitle}" (set allow_merge=true)` });
+          continue;
         }
-      });
-
-      results.push({ page_title_uid: item.page_title_uid, page_uid: pageUid, old_title: oldTitle, new_title: targetTitle, success: true, ...(existingUid ? { merged: true } : {}) });
+        // prepare merge actions
+        const childrenQuery = `[:find ?uid ?order
+                                :in $ ?page_uid
+                                :where [?p :block/uid ?page_uid]
+                                       [?b :block/page ?p]
+                                       [?b :block/uid ?uid]
+                                       [?b :block/order ?order]]`;
+        const kids = await q(this.graph, childrenQuery, [pageUid], this.limiter) as [string, number][];
+        const sorted = (kids || []).slice().sort((a, b) => (a[1] as number) - (b[1] as number));
+        for (const [kidUid] of sorted) {
+          actions.push({
+            action: 'move-block',
+            location: { 'parent-uid': existingUid, order: 'last' },
+            block: { uid: kidUid }
+          });
+        }
+        actions.push({ action: 'delete-page', page: { uid: pageUid } });
+        results.push({ page_title_uid: item.page_title_uid, page_uid: existingUid, old_title: oldTitle, new_title: targetTitle, success: true, merged: true });
+      } else {
+        actions.push({
+          action: 'update-page',
+          page: {
+            uid: pageUid,
+            title: targetTitle,
+            ...(item.children_view_type ? { 'children-view-type': item.children_view_type } : {})
+          }
+        });
+        results.push({ page_title_uid: item.page_title_uid, page_uid: pageUid, old_title: oldTitle, new_title: targetTitle, success: true });
+      }
     }
 
     if (actions.length === 0) {
