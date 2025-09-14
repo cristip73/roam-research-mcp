@@ -4,6 +4,7 @@ import {
   createPage as apiCreatePage,
   createBlock as apiCreateBlock,
   updateBlock as apiUpdateBlock,
+  updatePage as apiUpdatePage,
   batchActions as apiBatchActions
 } from '@roam-research/roam-api-sdk';
 import type Bottleneck from 'bottleneck';
@@ -67,4 +68,8 @@ export function updateBlock(graph: Graph, params: any, limiter?: Bottleneck) {
 
 export function batchActions(graph: Graph, params: RoamBatchActions, limiter?: Bottleneck) {
   return schedule(limiter ?? null, () => apiBatchActions(graph, params));
+}
+
+export function updatePage(graph: Graph, params: any, limiter?: Bottleneck) {
+  return schedule(limiter ?? null, () => apiUpdatePage(graph, params));
 }

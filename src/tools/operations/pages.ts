@@ -1,5 +1,5 @@
 import type { Graph } from '@roam-research/roam-api-sdk';
-import { q, createPage as createRoamPage, batchActions, createBlock } from '../../utils/roam-api-wrapper.js';
+import { q, createPage as createRoamPage, batchActions, createBlock, updatePage as updateRoamPage } from '../../utils/roam-api-wrapper.js';
 import { createToolLimiter } from '../../utils/rate-limiter.js';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { capitalizeWords } from '../helpers/text.js';
@@ -156,7 +156,7 @@ export class PageOperations {
           // Process blocks in batches
           for (let i = 0; i < content.length; i += batchLimit) {
             const batchBlocks = content.slice(i, i + batchLimit);
-            const actions = [];
+            const actions: any[] = [];
             
             for (const block of batchBlocks) {
               const parentUid = block.level === 1 ? pageUid : levelParents[block.level - 1];
@@ -188,7 +188,7 @@ export class PageOperations {
             if (actions.length > 0) {
               const batchResult = await batchActions(this.graph, {
                 action: 'batch-actions',
-                actions
+                actions: actions as any
               }, this.limiter);
               
               if (!batchResult) {
@@ -211,6 +211,188 @@ export class PageOperations {
       
       return { success: true, uid: pageUid };
     });
+  }
+
+  async renamePage(
+    page_title_uid: string,
+    new_title: string,
+    allow_merge: boolean = false,
+    children_view_type?: string
+  ): Promise<{ success: boolean; page_uid: string; old_title: string; new_title: string; merged?: boolean }> {
+    if (!page_title_uid || !new_title) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        'page_title_uid and new_title are required'
+      );
+    }
+
+    const targetTitle = String(new_title).trim();
+    if (targetTitle.length === 0) {
+      throw new McpError(ErrorCode.InvalidRequest, 'new_title cannot be empty');
+    }
+
+    return this.retryWithBackoff(async () => {
+      // Resolve UID (supports either title or UID input)
+      const uidQuery = `[:find ?uid . :in $ ?title :where [?e :node/title ?title] [?e :block/uid ?uid]]`;
+      let pageUidRaw = await q(this.graph, uidQuery, [page_title_uid], this.limiter);
+      let pageUid: string | null = (pageUidRaw === null || pageUidRaw === undefined) ? null : String(pageUidRaw);
+      if (!pageUid) {
+        // try direct UID
+        const directUidQuery = `[:find ?uid . :where [?e :block/uid "${page_title_uid}"] [?e :block/uid ?uid]]`;
+        const d = await q(this.graph, directUidQuery, [], this.limiter);
+        pageUid = (d === null || d === undefined) ? null : String(d);
+      }
+
+      if (!pageUid) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          `Page with title/UID "${page_title_uid}" not found`
+        );
+      }
+
+      // Get old title
+      const titleQuery = `[:find ?title . :in $ ?uid :where [?e :block/uid ?uid] [?e :node/title ?title]]`;
+      const oldTitleRaw = await q(this.graph, titleQuery, [pageUid], this.limiter);
+      const oldTitle: string | null = (oldTitleRaw === null || oldTitleRaw === undefined) ? null : String(oldTitleRaw);
+      if (!oldTitle) {
+        throw new McpError(ErrorCode.InternalError, `Could not resolve current title for UID ${pageUid}`);
+      }
+      if (oldTitle === targetTitle) {
+        return { success: true, page_uid: pageUid, old_title: oldTitle, new_title: targetTitle };
+      }
+
+      // Check if a page with the new title already exists
+      const existingRaw = await q(this.graph, uidQuery, [targetTitle], this.limiter);
+      const existingUid: string | null = (existingRaw === null || existingRaw === undefined) ? null : String(existingRaw);
+      if (existingUid && !allow_merge) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          `A page titled "${targetTitle}" already exists. Set allow_merge=true to proceed.`
+        );
+      }
+
+      // Perform rename via update-page
+      await updateRoamPage(this.graph, {
+        action: 'update-page',
+        page: {
+          uid: pageUid,
+          title: targetTitle,
+          ...(children_view_type ? { 'children-view-type': children_view_type } : {})
+        }
+      }, this.limiter);
+
+      return {
+        success: true,
+        page_uid: pageUid,
+        old_title: oldTitle,
+        new_title: targetTitle,
+        ...(existingUid ? { merged: true } : {})
+      };
+    });
+  }
+
+  async renamePages(
+    renames: Array<{ page_title_uid: string; new_title: string; allow_merge?: boolean; children_view_type?: string }>
+  ): Promise<{
+    success: boolean;
+    results: Array<{ page_title_uid: string; page_uid?: string; old_title?: string; new_title: string; merged?: boolean; success: boolean; error?: string }>;
+  }> {
+    if (!Array.isArray(renames) || renames.length === 0) {
+      throw new McpError(ErrorCode.InvalidRequest, 'renames must be a non-empty array');
+    }
+
+    // Pre-validate and resolve UIDs and titles
+    type PreItem = {
+      input: { page_title_uid: string; new_title: string; allow_merge?: boolean; children_view_type?: string };
+      pageUid?: string;
+      oldTitle?: string;
+      canProceed: boolean;
+      reason?: string;
+      merged?: boolean;
+    };
+
+    const uidByTitle = new Map<string, string>();
+    const actions: any[] = [];
+    const results: Array<{ page_title_uid: string; page_uid?: string; old_title?: string; new_title: string; merged?: boolean; success: boolean; error?: string }> = [];
+
+    // Helper to find UID by title (cache)
+    const findUidByTitle = async (title: string) => {
+      if (uidByTitle.has(title)) return uidByTitle.get(title)!;
+      const uRaw = await q(this.graph, `[:find ?uid . :in $ ?title :where [?e :node/title ?title] [?e :block/uid ?uid]]`, [title], this.limiter);
+      const u = (uRaw === null || uRaw === undefined) ? null : String(uRaw);
+      if (u) uidByTitle.set(title, u);
+      return u;
+    };
+
+    for (const item of renames) {
+      const pageKey = String(item.page_title_uid).trim();
+      const targetTitle = String(item.new_title).trim();
+      if (!pageKey || !targetTitle) {
+        results.push({ page_title_uid: item.page_title_uid, new_title: item.new_title, success: false, error: 'page_title_uid and new_title are required' });
+        continue;
+      }
+
+      // Resolve UID
+      let pageUid = await findUidByTitle(pageKey);
+      if (!pageUid) {
+        const directUidQuery = `[:find ?uid . :where [?e :block/uid "${pageKey}"] [?e :block/uid ?uid]]`;
+        const d = await q(this.graph, directUidQuery, [], this.limiter);
+        pageUid = (d === null || d === undefined) ? null : String(d);
+      }
+      if (!pageUid) {
+        results.push({ page_title_uid: item.page_title_uid, new_title: item.new_title, success: false, error: `Page "${pageKey}" not found` });
+        continue;
+      }
+
+      // Get current title
+      const oldTitleRaw2 = await q(this.graph, `[:find ?title . :in $ ?uid :where [?e :block/uid ?uid] [?e :node/title ?title]]`, [pageUid], this.limiter);
+      const oldTitle = (oldTitleRaw2 === null || oldTitleRaw2 === undefined) ? null : String(oldTitleRaw2);
+      if (!oldTitle) {
+        results.push({ page_title_uid: item.page_title_uid, new_title: item.new_title, success: false, error: `Could not resolve current title for UID ${pageUid}` });
+        continue;
+      }
+
+      if (oldTitle === targetTitle) {
+        results.push({ page_title_uid: item.page_title_uid, page_uid: pageUid, old_title: oldTitle, new_title: targetTitle, success: true });
+        continue;
+      }
+
+      const existingUid = await findUidByTitle(targetTitle);
+      if (existingUid && item.allow_merge !== true) {
+        results.push({ page_title_uid: item.page_title_uid, new_title: targetTitle, success: false, error: `Target title exists: "${targetTitle}" (set allow_merge=true)` });
+        continue;
+      }
+
+      actions.push({
+        action: 'update-page',
+        page: {
+          uid: pageUid,
+          title: targetTitle,
+          ...(item.children_view_type ? { 'children-view-type': item.children_view_type } : {})
+        }
+      });
+
+      results.push({ page_title_uid: item.page_title_uid, page_uid: pageUid, old_title: oldTitle, new_title: targetTitle, success: true, ...(existingUid ? { merged: true } : {}) });
+    }
+
+    if (actions.length === 0) {
+      return { success: results.every(r => r.success), results };
+    }
+
+    // Execute batch update-page actions
+    try {
+      await batchActions(this.graph, { action: 'batch-actions', actions: actions as any }, this.limiter);
+      return { success: results.every(r => r.success), results };
+    } catch (error: any) {
+      // Mark all previously successful items as failed due to batch failure
+      for (const r of results) {
+        if (r.success) {
+          r.success = false;
+          r.error = `Batch rename failed: ${error.message}`;
+        }
+      }
+      return { success: false, results };
+    }
   }
 
   async fetchPageByTitle(title: string): Promise<string> {

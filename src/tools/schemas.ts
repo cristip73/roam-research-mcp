@@ -72,6 +72,57 @@ export const toolSchemas = {
       required: ['title'],
     },
   },
+  roam_rename_page: {
+    name: 'roam_rename_page',
+    description: 'Rename a Roam page by exact title or UID. If a page with the new title already exists, the operation is blocked unless allow_merge=true (which mirrors Roam\'s merge behavior). Titles are case-sensitive.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        page_title_uid: {
+          type: 'string',
+          description: 'Exact page title or UID of the page to rename'
+        },
+        new_title: {
+          type: 'string',
+          description: 'New title for the page'
+        },
+        allow_merge: {
+          type: 'boolean',
+          description: 'Allow rename when a page with new_title already exists (will merge into it per Roam behavior)',
+          default: false
+        },
+        children_view_type: {
+          type: 'string',
+          description: 'Optional: update the page children view type as part of the rename'
+        }
+      },
+      required: ['page_title_uid', 'new_title']
+    }
+  },
+  roam_rename_multiple_pages: {
+    name: 'roam_rename_multiple_pages',
+    description: 'Batch rename multiple Roam pages in one request. Each item can choose whether to allow merge into an existing target title.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        renames: {
+          type: 'array',
+          description: 'List of page rename operations',
+          items: {
+            type: 'object',
+            properties: {
+              page_title_uid: { type: 'string', description: 'Exact page title or UID to rename' },
+              new_title: { type: 'string', description: 'New title' },
+              allow_merge: { type: 'boolean', description: 'Allow merge if target exists', default: false },
+              children_view_type: { type: 'string', description: 'Optional children view type' }
+            },
+            required: ['page_title_uid', 'new_title']
+          }
+        }
+      },
+      required: ['renames']
+    }
+  },
   roam_create_block: {
     name: 'roam_create_block',
     description: 'Add a new block to an existing Roam page. If no page specified, adds to today\'s daily note. Best for capturing immediate thoughts, additions to discussions, or content that doesn\'t warrant its own page. Can specify page by title or UID.\nNOTE on Roam-flavored markdown: For direct linking: use [[link]] syntax. For aliased linking, use [alias]([[link]]) syntax. Do not concatenate words in links/hashtags - correct: #[[multiple words]] #self-esteem (for typically hyphenated words).',

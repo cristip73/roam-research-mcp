@@ -117,6 +117,15 @@ declare module '@roam-research/roam-api-sdk' {
     };
   }
 
+  interface RoamUpdatePage {
+    action?: 'update-page';
+    page: {
+      uid: string;
+      title?: string;
+      'children-view-type'?: string;
+    };
+  }
+
   export function deleteBlock(
     graph: Graph,
     options: RoamDeleteBlock
@@ -126,6 +135,7 @@ declare module '@roam-research/roam-api-sdk' {
     action?: 'batch-actions';
     actions: Array<
       | RoamDeletePage
+      | RoamUpdatePage
       | RoamUpdatePage
       | RoamCreatePage
       | RoamDeleteBlock
@@ -139,4 +149,9 @@ declare module '@roam-research/roam-api-sdk' {
     graph: Graph,
     options: RoamBatchActions
   ): Promise<any>;
+
+  export function updatePage(
+    graph: Graph,
+    options: RoamUpdatePage
+  ): Promise<boolean>;
 }

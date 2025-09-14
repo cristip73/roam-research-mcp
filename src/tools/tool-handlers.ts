@@ -37,6 +37,14 @@ export class ToolHandlers {
     return this.pageOps.fetchPageByTitle(title);
   }
 
+  async renamePage(page_title_uid: string, new_title: string, allow_merge?: boolean, children_view_type?: string) {
+    return this.pageOps.renamePage(page_title_uid, new_title, allow_merge, children_view_type);
+  }
+
+  async renamePages(renames: Array<{ page_title_uid: string; new_title: string; allow_merge?: boolean; children_view_type?: string }>) {
+    return this.pageOps.renamePages(renames);
+  }
+
   // Block Operations
   async createBlock(content: string, page_uid?: string, title?: string, heading?: number) {
     return this.blockOps.createBlock(content, page_uid, title, heading);

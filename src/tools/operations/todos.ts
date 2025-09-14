@@ -63,7 +63,7 @@ export class TodoOperations {
 
       const result = await batchActions(this.graph, {
         action: 'batch-actions',
-        actions
+        actions: actions as any
       }, this.limiter);
 
       if (!result) {

@@ -38,6 +38,8 @@ export class RoamServer {
               roam_fetch_page_by_title: {},
               roam_create_page: {},
               roam_create_block: {},
+              roam_rename_page: {},
+              roam_rename_multiple_pages: {},
               roam_import_markdown: {},
               roam_create_outline: {},
               roam_search_for_tag: {},
@@ -107,6 +109,31 @@ export class RoamServer {
             return {
               content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
             };
+          }
+
+          case 'roam_rename_page': {
+            const { page_title_uid, new_title, allow_merge, children_view_type } = request.params.arguments as {
+              page_title_uid: string;
+              new_title: string;
+              allow_merge?: boolean;
+              children_view_type?: string;
+            };
+            if (!page_title_uid || !new_title) {
+              throw new McpError(ErrorCode.InvalidRequest, 'page_title_uid and new_title are required');
+            }
+            const result = await this.toolHandlers.renamePage(page_title_uid, new_title, allow_merge, children_view_type);
+            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+          }
+
+          case 'roam_rename_multiple_pages': {
+            const { renames } = request.params.arguments as {
+              renames: Array<{ page_title_uid: string; new_title: string; allow_merge?: boolean; children_view_type?: string }>
+            };
+            if (!Array.isArray(renames) || renames.length === 0) {
+              throw new McpError(ErrorCode.InvalidRequest, 'renames must be a non-empty array');
+            }
+            const result = await this.toolHandlers.renamePages(renames);
+            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
 
           case 'roam_create_block': {
